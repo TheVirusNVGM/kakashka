@@ -26,10 +26,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         add_cat = QAction("Add Category", self)
         save_act = QAction("Save", self)
-
-        add_cat = QtWidgets.QAction("Add Category", self)
-        save_act = QtWidgets.QAction("Save", self)
-        load_act = QtWidgets.QAction("Load", self)
+        load_act = QAction("Load", self)
 
         toolbar.addAction(add_cat)
         toolbar.addAction(save_act)
