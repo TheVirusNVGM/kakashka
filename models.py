@@ -22,6 +22,7 @@ class Category:
     y: float = 0
     width: float = 200
     height: float = 150
+    color: str = "#3c3c3c"
 
     def to_dict(self) -> Dict:
         return {
@@ -31,6 +32,7 @@ class Category:
             "y": self.y,
             "width": self.width,
             "height": self.height,
+            "color": self.color,
         }
 
     @staticmethod
@@ -41,6 +43,7 @@ class Category:
             y=data.get("y", 0),
             width=data.get("width", 200),
             height=data.get("height", 150),
+            color=data.get("color", "#3c3c3c"),
         )
         cat.mods = [Mod(**mod) for mod in data.get("mods", [])]
         return cat
