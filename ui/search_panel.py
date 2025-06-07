@@ -24,14 +24,8 @@ class ModCard(QtWidgets.QFrame):
         self.mod = mod
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
         self.setStyleSheet(
-            "QFrame {"
-            "background-color: #2a2a2a;"
-            "border-radius: 8px;"
-            "padding: 6px;"
-            "}"
-            "QFrame:hover {"
-            "background-color: #333;"
-            "}"
+            "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; }"
+            "QFrame:hover { background-color: #333; }"
         )
 
         layout = QtWidgets.QHBoxLayout(self)
@@ -43,6 +37,7 @@ class ModCard(QtWidgets.QFrame):
         layout.addWidget(self.icon_label)
 
         text_layout = QtWidgets.QVBoxLayout()
+
         self.title_label = QtWidgets.QLabel(mod.get("title", ""))
         title_font = self.title_label.font()
         title_font.setBold(True)
@@ -52,9 +47,8 @@ class ModCard(QtWidgets.QFrame):
 
         self.desc_label = QtWidgets.QLabel(mod.get("description", ""))
         self.desc_label.setWordWrap(True)
-        line_h = self.desc_label.fontMetrics().lineSpacing()
-        self.desc_label.setFixedHeight(line_h * 2 + 4)
         self.desc_label.setStyleSheet("color: #cccccc;")
+        self.desc_label.setFixedHeight(self.desc_label.fontMetrics().lineSpacing() * 2 + 4)
 
         text_layout.addWidget(self.title_label)
         text_layout.addWidget(self.desc_label)
@@ -65,12 +59,10 @@ class ModCard(QtWidgets.QFrame):
             try:
                 r = requests.get(icon_url)
                 r.raise_for_status()
-                buffer = BytesIO(r.content)
                 pix = QtGui.QPixmap()
-                pix.loadFromData(buffer.read())
-                if not pix.isNull():
-                    pix = pix.scaled(48, 48, QtCore.Qt.KeepAspectRatioByExpanding, QtCore.Qt.SmoothTransformation)
-                    self.icon_label.setPixmap(pix)
+                pix.loadFromData(r.content)
+                pix = pix.scaled(48, 48, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                self.icon_label.setPixmap(pix)
             except Exception:
                 pass
 
@@ -81,26 +73,26 @@ class SearchPanel(QtWidgets.QWidget):
         self.api = ModrinthAPI()
         self.translator = Translator()
         self.search_edit = QtWidgets.QLineEdit()
-        self.search_button = QtWidgets.QPushButton("Search")
+        self.search_button = QtWidgets.QPushButton("Поиск")
         self.results_list = ModListWidget()
         self.version_checks: list[QtWidgets.QCheckBox] = []
         self.loader_checks: list[QtWidgets.QCheckBox] = []
         self.page = 0
         self.page_size = 10
         self.mods: list[dict] = []
+
         self.results_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.results_list.setDragEnabled(True)
 
         layout = QtWidgets.QVBoxLayout(self)
 
-        self.filter_box = QtWidgets.QGroupBox()
-        filter_header = QtWidgets.QToolButton(text="Filters")
-        filter_header.setCheckable(True)
-        filter_header.setArrowType(QtCore.Qt.RightArrow)
+        self.filter_box = QtWidgets.QGroupBox("Фильтры")
+        self.filter_box.setCheckable(True)
+        self.filter_box.setChecked(False)
         filter_inner = QtWidgets.QWidget()
         filter_layout = QtWidgets.QHBoxLayout(filter_inner)
 
-        version_group = QtWidgets.QGroupBox("Minecraft Versions")
+        version_group = QtWidgets.QGroupBox("Версии Minecraft")
         vg_layout = QtWidgets.QVBoxLayout(version_group)
         ver_scroll = QtWidgets.QScrollArea()
         ver_scroll.setWidgetResizable(True)
@@ -114,7 +106,7 @@ class SearchPanel(QtWidgets.QWidget):
         ver_scroll.setWidget(ver_widget)
         vg_layout.addWidget(ver_scroll)
 
-        loader_group = QtWidgets.QGroupBox("Loaders")
+        loader_group = QtWidgets.QGroupBox("Загрузчики")
         lg_layout = QtWidgets.QVBoxLayout(loader_group)
         for loader in ["fabric", "forge", "quilt", "neoforge"]:
             cb = QtWidgets.QCheckBox(loader)
@@ -126,23 +118,18 @@ class SearchPanel(QtWidgets.QWidget):
         filter_layout.addWidget(loader_group)
 
         box_layout = QtWidgets.QVBoxLayout(self.filter_box)
-        box_layout.setContentsMargins(0, 0, 0, 0)
-        box_layout.addWidget(filter_header)
         box_layout.addWidget(filter_inner)
         filter_inner.setVisible(False)
-        filter_header.toggled.connect(filter_inner.setVisible)
-        filter_header.toggled.connect(
-            lambda ch: filter_header.setArrowType(
-                QtCore.Qt.DownArrow if ch else QtCore.Qt.RightArrow
-            )
-        )
+        self.filter_box.toggled.connect(filter_inner.setVisible)
 
         layout.addWidget(self.filter_box)
+
         search_row = QtWidgets.QHBoxLayout()
         search_row.addWidget(self.search_edit)
         search_row.addWidget(self.search_button)
         layout.addLayout(search_row)
         layout.addWidget(self.results_list)
+
         pag_row = QtWidgets.QHBoxLayout()
         self.prev_btn = QtWidgets.QPushButton("<")
         self.page_label = QtWidgets.QLabel("1/1")
@@ -184,9 +171,7 @@ class SearchPanel(QtWidgets.QWidget):
             return
         versions = [cb.text() for cb in self.version_checks if cb.isChecked()]
         loaders = [cb.text() for cb in self.loader_checks if cb.isChecked()]
-        self.mods = self.api.search_mods(
-            query, limit=100, versions=versions, loaders=loaders
-        )
+        self.mods = self.api.search_mods(query, limit=100, versions=versions, loaders=loaders)
         self.display_page()
 
     def display_page(self):
@@ -213,7 +198,6 @@ class SearchPanel(QtWidgets.QWidget):
 
     def update_page_label(self):
         import math
-
         total = max(1, math.ceil(len(self.mods) / self.page_size))
         self.page_label.setText(f"{self.page + 1}/{total}")
         self.prev_btn.setEnabled(self.page > 0)
@@ -221,7 +205,6 @@ class SearchPanel(QtWidgets.QWidget):
 
     def next_page(self):
         import math
-
         total = math.ceil(len(self.mods) / self.page_size)
         if self.page < total - 1:
             self.page += 1
