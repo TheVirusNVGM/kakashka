@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtWidgets
+
 from PySide6.QtGui import QAction
+
 from .search_panel import SearchPanel
 from .board import BoardView
 from storage import save_schema, load_schema
@@ -21,9 +23,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
 
         toolbar = self.addToolBar("Main")
+
         add_cat = QAction("Add Category", self)
         save_act = QAction("Save", self)
-        load_act = QAction("Load", self)
+
+        add_cat = QtWidgets.QAction("Add Category", self)
+        save_act = QtWidgets.QAction("Save", self)
+        load_act = QtWidgets.QAction("Load", self)
+
         toolbar.addAction(add_cat)
         toolbar.addAction(save_act)
         toolbar.addAction(load_act)
