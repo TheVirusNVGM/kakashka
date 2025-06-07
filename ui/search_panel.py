@@ -21,29 +21,42 @@ class ModListItemWidget(QtWidgets.QWidget):
     def __init__(self, mod: dict, parent=None):
         super().__init__(parent)
         self.mod = mod
+
         layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setContentsMargins(6, 6, 6, 6)
+
         self.icon_label = QtWidgets.QLabel()
-        self.icon_label.setFixedSize(32, 32)
+        self.icon_label.setFixedSize(48, 48)
+        self.icon_label.setStyleSheet("border-radius:6px;")
         layout.addWidget(self.icon_label)
 
         text_layout = QtWidgets.QVBoxLayout()
+
         self.title_label = QtWidgets.QLabel(mod.get("title", ""))
-        self.title_label.setStyleSheet("font-weight: bold")
+        title_font = self.title_label.font()
+        title_font.setBold(True)
+        title_font.setPointSizeF(title_font.pointSizeF() * 1.1)
+        self.title_label.setFont(title_font)
+        self.title_label.setStyleSheet("color: #f0f0f0;")
+        text_layout.addWidget(self.title_label)
+
         self.desc_label = QtWidgets.QLabel(mod.get("description", ""))
         self.desc_label.setWordWrap(True)
-        self.desc_label.setFixedWidth(200)
-        text_layout.addWidget(self.title_label)
+        self.desc_label.setStyleSheet("color: #cccccc;")
+        self.desc_label.setFixedHeight(self.desc_label.fontMetrics().lineSpacing() * 2 + 4)
         text_layout.addWidget(self.desc_label)
+
         layout.addLayout(text_layout)
 
         icon_url = mod.get("icon_url")
         if icon_url:
             try:
                 r = requests.get(icon_url)
+                r.raise_for_status()
                 pix = QtGui.QPixmap()
                 pix.loadFromData(r.content)
-                self.icon_label.setPixmap(pix.scaled(32, 32, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+                pix = pix.scaled(48, 48, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                self.icon_label.setPixmap(pix)
             except Exception:
                 pass
 
@@ -55,35 +68,71 @@ class SearchPanel(QtWidgets.QWidget):
         self.search_edit = QtWidgets.QLineEdit()
         self.search_button = QtWidgets.QPushButton("Search")
         self.results_list = ModListWidget()
-        self.version_checks: list[QtWidgets.QCheckBox] = []
-        self.loader_checks: list[QtWidgets.QCheckBox] = []
+        self.version_checks = []
+        self.loader_checks = []
         self.results_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.results_list.setDragEnabled(True)
 
         layout = QtWidgets.QVBoxLayout(self)
 
-        filter_layout = QtWidgets.QHBoxLayout()
-        version_group = QtWidgets.QGroupBox("Versions")
-        v_layout = QtWidgets.QHBoxLayout(version_group)
-        for ver in ["1.21.5", "1.20.6", "1.20.5", "1.20.4", "1.19.4"]:
+        self.filter_box = QtWidgets.QGroupBox("Фильтры")
+        self.filter_box.setCheckable(True)
+        self.filter_box.setChecked(False)
+        filter_inner = QtWidgets.QWidget()
+        filter_layout = QtWidgets.QHBoxLayout(filter_inner)
+
+        version_group = QtWidgets.QGroupBox("Версии Minecraft")
+        vg_layout = QtWidgets.QVBoxLayout(version_group)
+        ver_scroll = QtWidgets.QScrollArea()
+        ver_scroll.setWidgetResizable(True)
+        ver_widget = QtWidgets.QWidget()
+        ver_layout = QtWidgets.QVBoxLayout(ver_widget)
+        for ver in self.generate_versions():
             cb = QtWidgets.QCheckBox(ver)
-            v_layout.addWidget(cb)
+            ver_layout.addWidget(cb)
             self.version_checks.append(cb)
-        loader_group = QtWidgets.QGroupBox("Loaders")
-        l_layout = QtWidgets.QHBoxLayout(loader_group)
+        ver_layout.addStretch()
+        ver_scroll.setWidget(ver_widget)
+        vg_layout.addWidget(ver_scroll)
+
+        loader_group = QtWidgets.QGroupBox("Загрузчики (Loaders)")
+        lg_layout = QtWidgets.QVBoxLayout(loader_group)
         for loader in ["fabric", "forge", "quilt", "neoforge"]:
             cb = QtWidgets.QCheckBox(loader)
-            l_layout.addWidget(cb)
+            lg_layout.addWidget(cb)
             self.loader_checks.append(cb)
+        lg_layout.addStretch()
+
         filter_layout.addWidget(version_group)
         filter_layout.addWidget(loader_group)
 
-        layout.addLayout(filter_layout)
-        layout.addWidget(self.search_edit)
-        layout.addWidget(self.search_button)
+        box_layout = QtWidgets.QVBoxLayout(self.filter_box)
+        box_layout.addWidget(filter_inner)
+        filter_inner.setVisible(False)
+        self.filter_box.toggled.connect(filter_inner.setVisible)
+
+        layout.addWidget(self.filter_box)
+        search_row = QtWidgets.QHBoxLayout()
+        search_row.addWidget(self.search_edit)
+        search_row.addWidget(self.search_button)
+        layout.addLayout(search_row)
         layout.addWidget(self.results_list)
 
         self.search_button.clicked.connect(self.on_search)
+
+    @staticmethod
+    def generate_versions() -> list[str]:
+        from decimal import Decimal
+        v = Decimal("21.5")
+        versions = []
+        while v >= 1:
+            s = str(v.normalize())
+            if s.endswith(".0"):
+                s = s[:-2]
+            versions.append(f"1.{s}")
+            v -= Decimal("0.1")
+        versions.append("1.0")
+        return versions
 
     def on_search(self):
         query = self.search_edit.text().strip()
