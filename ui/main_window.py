@@ -26,10 +26,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         add_cat = QAction("Add Category", self)
         save_act = QAction("Save", self)
-
-        add_cat = QtWidgets.QAction("Add Category", self)
-        save_act = QtWidgets.QAction("Save", self)
-        load_act = QtWidgets.QAction("Load", self)
+        load_act = QAction("Load", self)
 
         toolbar.addAction(add_cat)
         toolbar.addAction(save_act)
@@ -40,9 +37,7 @@ class MainWindow(QtWidgets.QMainWindow):
         load_act.triggered.connect(self.load)
 
     def add_category(self):
-        name, ok = QtWidgets.QInputDialog.getText(self, "Category name", "Name:")
-        if ok and name:
-            self.board.add_category(name)
+        self.board.create_category_dialog()
 
     def save(self):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save", filter="JSON Files (*.json)")
