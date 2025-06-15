@@ -5,6 +5,7 @@ import math
 from googletrans import Translator
 
 
+
 class ModListWidget(QtWidgets.QListWidget):
     def startDrag(self, supportedActions):
         item = self.currentItem()
@@ -86,8 +87,6 @@ class SearchPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.filter_box = QtWidgets.QGroupBox("Фильтры")
-        self.filter_box.setCheckable(True)
-        self.filter_box.setChecked(False)
         filter_inner = QtWidgets.QWidget()
         filter_layout = QtWidgets.QHBoxLayout(filter_inner)
 
