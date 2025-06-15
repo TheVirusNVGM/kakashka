@@ -1,7 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 from modrinth_api import ModrinthAPI
 import requests
-from io import BytesIO
+import math
 from googletrans import Translator
 
 
@@ -197,14 +197,12 @@ class SearchPanel(QtWidgets.QWidget):
         self.update_page_label()
 
     def update_page_label(self):
-        import math
         total = max(1, math.ceil(len(self.mods) / self.page_size))
         self.page_label.setText(f"{self.page + 1}/{total}")
         self.prev_btn.setEnabled(self.page > 0)
         self.next_btn.setEnabled(self.page < total - 1)
 
     def next_page(self):
-        import math
         total = math.ceil(len(self.mods) / self.page_size)
         if self.page < total - 1:
             self.page += 1
