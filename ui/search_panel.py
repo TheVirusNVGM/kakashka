@@ -71,7 +71,6 @@ class SearchPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.api = ModrinthAPI()
-        self.translator = Translator()
         self.search_edit = QtWidgets.QLineEdit()
         self.search_button = QtWidgets.QPushButton("Поиск")
         self.results_list = ModListWidget()
@@ -183,7 +182,19 @@ class SearchPanel(QtWidgets.QWidget):
             desc = mod.get("description", "")
             if desc:
                 try:
-                    desc = self.translator.translate(desc, dest="ru").text
+                    r = requests.post(
+                        "http://localhost:5000/translate",
+                        json={
+                            "q": desc,
+                            "source": "en",
+                            "target": "ru",
+                            "format": "text",
+                        },
+                        timeout=5,
+                    )
+                    r.raise_for_status()
+                    resp_json = r.json()
+                    desc = resp_json.get("translatedText", desc)
                 except Exception:
                     pass
             card_mod = mod.copy()
