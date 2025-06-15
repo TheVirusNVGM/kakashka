@@ -2,7 +2,9 @@ import os
 import json
 import requests
 
-MODRINTH_TOKEN = os.environ.get("MODRINTH_TOKEN", "mrp_0nUiSOTSQ7Xar35PfRapMOIwXH5CA4QaV3BMOSGlwmsAaxfjTgPWmyM6CQFg")
+MODRINTH_TOKEN = os.environ.get(
+    "MODRINTH_TOKEN", "mrp_0nUiSOTSQ7Xar35PfRapMOIwXH5CA4QaV3BMOSGlwmsAaxfjTgPWmyM6CQFg"
+)
 BASE_URL = "https://api.modrinth.com/v2"
 
 

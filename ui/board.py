@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 from models import Mod, Category
+import ast
 
 
 class NodeItem(QtWidgets.QGraphicsRectItem):
@@ -72,14 +73,14 @@ class BoardScene(QtWidgets.QGraphicsScene):
     def dropEvent(self, event: QtGui.QDropEvent):
         if event.mimeData().hasFormat("application/x-mod"):
             data = event.mimeData().data("application/x-mod").data().decode()
-            mod_dict = eval(data)  # simple; assume safe
+            mod_dict = ast.literal_eval(data)
             mod = Mod(
                 slug=mod_dict.get("slug", ""),
                 title=mod_dict.get("title", ""),
                 description=mod_dict.get("description", ""),
                 author=mod_dict.get("author", ""),
                 version=mod_dict.get("versions", ["unknown"])[0],
-                url=f"https://modrinth.com/mod/{mod_dict.get('slug')}"
+                url=f"https://modrinth.com/mod/{mod_dict.get('slug')}",
             )
             pos = event.scenePos()
             item = NodeItem(mod)
@@ -115,7 +116,9 @@ class BoardView(QtWidgets.QGraphicsView):
         item = self.scene().itemAt(pos, QtGui.QTransform())
         if item is None:
             menu = QtWidgets.QMenu(self)
-            act = menu.addAction("\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e")
+            act = menu.addAction(
+                "\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e"
+            )
             chosen = menu.exec(event.globalPos())
             if chosen is act:
                 self.create_category_dialog(pos)
@@ -124,7 +127,9 @@ class BoardView(QtWidgets.QGraphicsView):
 
     def create_category_dialog(self, pos=None):
         dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("\u041d\u043e\u0432\u0430\u044f \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f")
+        dialog.setWindowTitle(
+            "\u041d\u043e\u0432\u0430\u044f \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f"
+        )
         layout = QtWidgets.QFormLayout(dialog)
         name_edit = QtWidgets.QLineEdit()
         color_btn = QtWidgets.QPushButton()
@@ -183,5 +188,3 @@ class BoardView(QtWidgets.QGraphicsView):
                 node.setParentItem(cat_item)
                 node.setPos(mod.x, mod.y)
                 cat_item.expand_to_fit(node)
-
-

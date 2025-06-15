@@ -1,8 +1,9 @@
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets, QtConcurrent
 from modrinth_api import ModrinthAPI
 import requests
-from io import BytesIO
-from googletrans import Translator
+import math
+
+TRANSLATE_URL = "http://localhost:5000/translate"
 
 
 class ModListWidget(QtWidgets.QListWidget):
@@ -48,7 +49,9 @@ class ModCard(QtWidgets.QFrame):
         self.desc_label = QtWidgets.QLabel(mod.get("description", ""))
         self.desc_label.setWordWrap(True)
         self.desc_label.setStyleSheet("color: #cccccc;")
-        self.desc_label.setFixedHeight(self.desc_label.fontMetrics().lineSpacing() * 2 + 4)
+        self.desc_label.setFixedHeight(
+            self.desc_label.fontMetrics().lineSpacing() * 2 + 4
+        )
 
         text_layout.addWidget(self.title_label)
         text_layout.addWidget(self.desc_label)
@@ -61,7 +64,9 @@ class ModCard(QtWidgets.QFrame):
                 r.raise_for_status()
                 pix = QtGui.QPixmap()
                 pix.loadFromData(r.content)
-                pix = pix.scaled(48, 48, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                pix = pix.scaled(
+                    48, 48, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                )
                 self.icon_label.setPixmap(pix)
             except Exception:
                 pass
@@ -71,7 +76,6 @@ class SearchPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.api = ModrinthAPI()
-        self.translator = Translator()
         self.search_edit = QtWidgets.QLineEdit()
         self.search_button = QtWidgets.QPushButton("Поиск")
         self.results_list = ModListWidget()
@@ -80,15 +84,15 @@ class SearchPanel(QtWidgets.QWidget):
         self.page = 0
         self.page_size = 10
         self.mods: list[dict] = []
+        self.search_watcher: QtCore.QFutureWatcher | None = None
+        self.translation_watchers: list[QtCore.QFutureWatcher] = []
 
         self.results_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.results_list.setDragEnabled(True)
 
         layout = QtWidgets.QVBoxLayout(self)
 
-        self.filter_box = QtWidgets.QGroupBox("Фильтры")
-        self.filter_box.setCheckable(True)
-        self.filter_box.setChecked(False)
+        self.filter_box = QtWidgets.QGroupBox()
         filter_inner = QtWidgets.QWidget()
         filter_layout = QtWidgets.QHBoxLayout(filter_inner)
 
@@ -117,10 +121,24 @@ class SearchPanel(QtWidgets.QWidget):
         filter_layout.addWidget(version_group)
         filter_layout.addWidget(loader_group)
 
+        toggle_row = QtWidgets.QHBoxLayout()
+        self.filter_toggle = QtWidgets.QToolButton()
+        self.filter_toggle.setArrowType(QtCore.Qt.RightArrow)
+        self.filter_toggle.setCheckable(True)
+        toggle_row.addWidget(self.filter_toggle)
+        toggle_row.addWidget(QtWidgets.QLabel("Фильтры"))
+        toggle_row.addStretch()
+
         box_layout = QtWidgets.QVBoxLayout(self.filter_box)
+        box_layout.addLayout(toggle_row)
         box_layout.addWidget(filter_inner)
         filter_inner.setVisible(False)
-        self.filter_box.toggled.connect(filter_inner.setVisible)
+        self.filter_toggle.toggled.connect(filter_inner.setVisible)
+        self.filter_toggle.toggled.connect(
+            lambda ch: self.filter_toggle.setArrowType(
+                QtCore.Qt.DownArrow if ch else QtCore.Qt.RightArrow
+            )
+        )
 
         layout.addWidget(self.filter_box)
 
@@ -151,6 +169,7 @@ class SearchPanel(QtWidgets.QWidget):
     @staticmethod
     def generate_versions() -> list[str]:
         from decimal import Decimal
+
         v = Decimal("21.5")
         versions = []
         while v >= 1:
@@ -171,7 +190,27 @@ class SearchPanel(QtWidgets.QWidget):
             return
         versions = [cb.text() for cb in self.version_checks if cb.isChecked()]
         loaders = [cb.text() for cb in self.loader_checks if cb.isChecked()]
-        self.mods = self.api.search_mods(query, limit=100, versions=versions, loaders=loaders)
+
+        if self.search_watcher:
+            self.search_watcher.cancel()
+
+        future = QtConcurrent.run(self.api.search_mods, query, 100, versions, loaders)
+        watcher = QtCore.QFutureWatcher()
+        watcher.setFuture(future)
+        watcher.finished.connect(self._on_search_finished)
+        self.search_watcher = watcher
+        self.search_button.setEnabled(False)
+
+    def _on_search_finished(self):
+        if not self.search_watcher:
+            return
+        try:
+            self.mods = self.search_watcher.future().result()
+        except Exception:
+            self.mods = []
+        self.search_watcher.deleteLater()
+        self.search_watcher = None
+        self.search_button.setEnabled(True)
         self.display_page()
 
     def display_page(self):
@@ -179,13 +218,9 @@ class SearchPanel(QtWidgets.QWidget):
         start = self.page * self.page_size
         end = start + self.page_size
         subset = self.mods[start:end]
+        self.translation_watchers.clear()
         for mod in subset:
             desc = mod.get("description", "")
-            if desc:
-                try:
-                    desc = self.translator.translate(desc, dest="ru").text
-                except Exception:
-                    pass
             card_mod = mod.copy()
             card_mod["description"] = desc
             item = QtWidgets.QListWidgetItem()
@@ -194,17 +229,50 @@ class SearchPanel(QtWidgets.QWidget):
             item.setData(QtCore.Qt.UserRole, mod)
             self.results_list.addItem(item)
             self.results_list.setItemWidget(item, widget)
+            if desc:
+                future = QtConcurrent.run(self._translate_desc, desc)
+                watcher = QtCore.QFutureWatcher()
+                watcher.setFuture(future)
+                watcher.finished.connect(
+                    lambda w=watcher, lbl=widget.desc_label, d=desc: self._apply_translation(
+                        w, lbl, d
+                    )
+                )
+                self.translation_watchers.append(watcher)
         self.update_page_label()
 
+    def _translate_desc(self, text: str) -> str:
+        try:
+            r = requests.post(
+                TRANSLATE_URL,
+                json={"q": text, "source": "en", "target": "ru", "format": "text"},
+                timeout=5,
+            )
+            if r.ok:
+                return r.json().get("translatedText", text)
+        except Exception:
+            pass
+        return text
+
+    def _apply_translation(
+        self, watcher: QtCore.QFutureWatcher, label: QtWidgets.QLabel, default: str
+    ):
+        try:
+            text = watcher.future().result()
+        except Exception:
+            text = default
+        label.setText(text)
+        watcher.deleteLater()
+        if watcher in self.translation_watchers:
+            self.translation_watchers.remove(watcher)
+
     def update_page_label(self):
-        import math
         total = max(1, math.ceil(len(self.mods) / self.page_size))
         self.page_label.setText(f"{self.page + 1}/{total}")
         self.prev_btn.setEnabled(self.page > 0)
         self.next_btn.setEnabled(self.page < total - 1)
 
     def next_page(self):
-        import math
         total = math.ceil(len(self.mods) / self.page_size)
         if self.page < total - 1:
             self.page += 1
