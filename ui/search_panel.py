@@ -1,5 +1,4 @@
 from PySide6 import QtCore, QtGui, QtWidgets
-from concurrent.futures import ThreadPoolExecutor
 from modrinth_api import ModrinthAPI
 import requests
 import math
@@ -24,18 +23,21 @@ class ModCard(QtWidgets.QFrame):
         super().__init__(parent)
         self.mod = mod
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.setFixedHeight(80)
         self.setStyleSheet(
-            "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; }"
+            "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; margin-bottom: 6px; }"
             "QFrame:hover { background-color: #333; }"
         )
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
+        layout.setAlignment(QtCore.Qt.AlignVCenter)
 
         self.icon_label = QtWidgets.QLabel()
         self.icon_label.setFixedSize(64, 64)
         self.icon_label.setStyleSheet("border-radius:4px;")
+        self.icon_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(self.icon_label)
 
         text_layout = QtWidgets.QVBoxLayout()
@@ -46,6 +48,7 @@ class ModCard(QtWidgets.QFrame):
         title_font.setBold(True)
         title_font.setPointSize(15)
         self.title_label.setFont(title_font)
+        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
         self.title_label.setStyleSheet("color: #f0f0f0; margin-bottom: 2px;")
 
         desc = mod.get("description", "")
@@ -80,27 +83,21 @@ class ModCard(QtWidgets.QFrame):
                 pass
 
 
-class FutureWatcher(QtCore.QObject):
-    finished = QtCore.Signal()
+class Worker(QtCore.QObject, QtCore.QRunnable):
+    finished = QtCore.Signal(object)
 
-    def __init__(self, future):
-        super().__init__()
-        self._future = future
-        future.add_done_callback(
-            lambda f: QtCore.QMetaObject.invokeMethod(
-                self, "_emit_finished", QtCore.Qt.QueuedConnection
-            )
-        )
+    def __init__(self, fn, *args, callback=None):
+        QtCore.QObject.__init__(self)
+        QtCore.QRunnable.__init__(self)
+        self.fn = fn
+        self.args = args
+        if callback:
+            self.finished.connect(callback)
 
     @QtCore.Slot()
-    def _emit_finished(self):
-        self.finished.emit()
-
-    def future(self):
-        return self._future
-
-    def cancel(self):
-        self._future.cancel()
+    def run(self):
+        result = self.fn(*self.args)
+        self.finished.emit(result)
 
 
 class SearchPanel(QtWidgets.QWidget):
@@ -115,9 +112,11 @@ class SearchPanel(QtWidgets.QWidget):
         self.page = 0
         self.page_size = 10
         self.mods: list[dict] = []
-        self.executor = ThreadPoolExecutor()
-        self.search_watcher: FutureWatcher | None = None
-        self.translation_watchers: list[FutureWatcher] = []
+        self.progress = QtWidgets.QProgressDialog(
+            "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430\u2026", None, 0, 0, self
+        )
+        self.progress.setCancelButton(None)
+        self.progress.setWindowModality(QtCore.Qt.ApplicationModal)
 
         self.results_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.results_list.setDragEnabled(True)
@@ -195,8 +194,6 @@ class SearchPanel(QtWidgets.QWidget):
         self.next_btn.clicked.connect(self.next_page)
 
         self.search_button.clicked.connect(self.on_search)
-        for cb in self.version_checks + self.loader_checks:
-            cb.toggled.connect(self.on_search)
 
     @staticmethod
     def generate_versions() -> list[str]:
@@ -223,27 +220,25 @@ class SearchPanel(QtWidgets.QWidget):
         versions = [cb.text() for cb in self.version_checks if cb.isChecked()]
         loaders = [cb.text() for cb in self.loader_checks if cb.isChecked()]
 
-        if self.search_watcher:
-            self.search_watcher.cancel()
-
-        future = self.executor.submit(
-            self.api.search_mods, query, 100, versions, loaders
+        worker = Worker(
+            self.api.search_mods,
+            query,
+            100,
+            versions,
+            loaders,
+            callback=self._on_search_finished,
         )
-        watcher = FutureWatcher(future)
-        watcher.finished.connect(self._on_search_finished)
-        self.search_watcher = watcher
+        QtCore.QThreadPool.globalInstance().start(worker)
         self.search_button.setEnabled(False)
+        self.progress.show()
 
-    def _on_search_finished(self):
-        if not self.search_watcher:
-            return
-        try:
-            self.mods = self.search_watcher.future().result()
-        except Exception:
-            self.mods = []
-        self.search_watcher.deleteLater()
-        self.search_watcher = None
+    def _on_search_finished(self, result):
+        self.progress.hide()
         self.search_button.setEnabled(True)
+        if isinstance(result, list):
+            self.mods = result
+        else:
+            self.mods = []
         self.display_page()
 
     def display_page(self):
@@ -251,7 +246,6 @@ class SearchPanel(QtWidgets.QWidget):
         start = self.page * self.page_size
         end = start + self.page_size
         subset = self.mods[start:end]
-        self.translation_watchers.clear()
         for mod in subset:
             desc = mod.get("description", "")
             if desc:
