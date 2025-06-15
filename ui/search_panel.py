@@ -5,6 +5,8 @@ import math
 from deep_translator import GoogleTranslator
 
 
+
+
 class ModListWidget(QtWidgets.QListWidget):
     def startDrag(self, supportedActions):
         item = self.currentItem()
@@ -181,6 +183,21 @@ class SearchPanel(QtWidgets.QWidget):
             if desc:
                 try:
                     desc = GoogleTranslator(source="en", target="ru").translate(desc)
+
+                    r = requests.post(
+                        "http://localhost:5000/translate",
+                        json={
+                            "q": desc,
+                            "source": "en",
+                            "target": "ru",
+                            "format": "text",
+                        },
+                        timeout=5,
+                    )
+                    r.raise_for_status()
+                    resp_json = r.json()
+                    desc = resp_json.get("translatedText", desc)
+
                 except Exception:
                     pass
             card_mod = mod.copy()
