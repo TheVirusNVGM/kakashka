@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 from models import Mod, Category
+import ast
 
 
 class NodeItem(QtWidgets.QGraphicsRectItem):
@@ -72,7 +73,7 @@ class BoardScene(QtWidgets.QGraphicsScene):
     def dropEvent(self, event: QtGui.QDropEvent):
         if event.mimeData().hasFormat("application/x-mod"):
             data = event.mimeData().data("application/x-mod").data().decode()
-            mod_dict = eval(data)  # simple; assume safe
+            mod_dict = ast.literal_eval(data)
             mod = Mod(
                 slug=mod_dict.get("slug", ""),
                 title=mod_dict.get("title", ""),
