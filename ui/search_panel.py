@@ -1,4 +1,4 @@
-from PySide6 import QtCore, QtGui, QtWidgets, QtConcurrent
+from PySide6 import QtCore, QtGui, QtWidgets
 from modrinth_api import ModrinthAPI
 import requests
 import math
@@ -23,39 +23,49 @@ class ModCard(QtWidgets.QFrame):
         super().__init__(parent)
         self.mod = mod
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.setFixedHeight(80)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.setStyleSheet(
-            "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; }"
+            "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; margin-bottom: 6px; }"
             "QFrame:hover { background-color: #333; }"
         )
 
         layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+        layout.setAlignment(QtCore.Qt.AlignVCenter)
 
         self.icon_label = QtWidgets.QLabel()
-        self.icon_label.setFixedSize(48, 48)
-        self.icon_label.setStyleSheet("border-radius:6px;")
+        self.icon_label.setFixedSize(64, 64)
+        self.icon_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.icon_label.setStyleSheet("border-radius:4px;")
         layout.addWidget(self.icon_label)
 
         text_layout = QtWidgets.QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setAlignment(QtCore.Qt.AlignVCenter)
 
         self.title_label = QtWidgets.QLabel(mod.get("title", ""))
+        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
         title_font = self.title_label.font()
         title_font.setBold(True)
-        title_font.setPointSizeF(title_font.pointSizeF() * 1.1)
+        title_font.setPointSize(15)
         self.title_label.setFont(title_font)
-        self.title_label.setStyleSheet("color: #f0f0f0;")
+        self.title_label.setStyleSheet("color: #f0f0f0; margin-bottom: 2px;")
 
-        self.desc_label = QtWidgets.QLabel(mod.get("description", ""))
+        self.desc_label = QtWidgets.QLabel()
         self.desc_label.setWordWrap(True)
         self.desc_label.setStyleSheet("color: #cccccc;")
-        self.desc_label.setFixedHeight(
-            self.desc_label.fontMetrics().lineSpacing() * 2 + 4
-        )
+        self.desc_label.setMaximumWidth(400)
+        fm = self.desc_label.fontMetrics()
+        self.desc_label.setFixedHeight(fm.lineSpacing() * 2)
 
         text_layout.addWidget(self.title_label)
         text_layout.addWidget(self.desc_label)
+        text_layout.addStretch()
         layout.addLayout(text_layout)
 
+        self.set_description(mod.get("description", ""))
         icon_url = mod.get("icon_url")
         if icon_url:
             try:
@@ -64,11 +74,35 @@ class ModCard(QtWidgets.QFrame):
                 pix = QtGui.QPixmap()
                 pix.loadFromData(r.content)
                 pix = pix.scaled(
-                    48, 48, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                    64, 64, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
                 )
                 self.icon_label.setPixmap(pix)
             except Exception:
                 pass
+
+    def set_description(self, text: str):
+        fm = self.desc_label.fontMetrics()
+        elided = fm.elidedText(
+            text, QtCore.Qt.ElideRight, self.desc_label.maximumWidth() * 2
+        )
+        self.desc_label.setText(elided)
+
+
+class Worker(QtCore.QRunnable):
+    def __init__(self, fn, *args, callback=None):
+        super().__init__()
+        self.fn = fn
+        self.args = args
+        self.callback = callback
+
+    @QtCore.Slot()
+    def run(self):
+        try:
+            result = self.fn(*self.args)
+        except Exception:
+            result = None
+        if self.callback:
+            QtCore.QTimer.singleShot(0, lambda: self.callback(result))
 
 
 class SearchPanel(QtWidgets.QWidget):
@@ -83,8 +117,15 @@ class SearchPanel(QtWidgets.QWidget):
         self.page = 0
         self.page_size = 10
         self.mods: list[dict] = []
-        self.search_watcher: QtCore.QFutureWatcher | None = None
-        self.translation_watchers: list[QtCore.QFutureWatcher] = []
+        self.thread_pool = QtCore.QThreadPool(self)
+        self.search_running = False
+        self.progress = QtWidgets.QProgressDialog(
+            "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...", None, 0, 0, self
+        )
+        self.progress.setWindowTitle("\u041f\u043e\u0438\u0441\u043a")
+        self.progress.setCancelButton(None)
+        self.progress.setWindowModality(QtCore.Qt.ApplicationModal)
+        self.progress.close()
 
         self.results_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.results_list.setDragEnabled(True)
@@ -92,8 +133,8 @@ class SearchPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.filter_box = QtWidgets.QGroupBox("Фильтры")
-        filter_inner = QtWidgets.QWidget()
-        filter_layout = QtWidgets.QHBoxLayout(filter_inner)
+        self.filter_inner = QtWidgets.QWidget()
+        filter_layout = QtWidgets.QHBoxLayout(self.filter_inner)
 
         version_group = QtWidgets.QGroupBox("Версии Minecraft")
         vg_layout = QtWidgets.QVBoxLayout(version_group)
@@ -130,9 +171,9 @@ class SearchPanel(QtWidgets.QWidget):
 
         box_layout = QtWidgets.QVBoxLayout(self.filter_box)
         box_layout.addLayout(toggle_row)
-        box_layout.addWidget(filter_inner)
-        filter_inner.setVisible(False)
-        self.filter_toggle.toggled.connect(filter_inner.setVisible)
+        box_layout.addWidget(self.filter_inner)
+        self.filter_inner.setVisible(False)
+        self.filter_toggle.toggled.connect(self.filter_inner.setVisible)
         self.filter_toggle.toggled.connect(
             lambda ch: self.filter_toggle.setArrowType(
                 QtCore.Qt.DownArrow if ch else QtCore.Qt.RightArrow
@@ -162,8 +203,6 @@ class SearchPanel(QtWidgets.QWidget):
         self.next_btn.clicked.connect(self.next_page)
 
         self.search_button.clicked.connect(self.on_search)
-        for cb in self.version_checks + self.loader_checks:
-            cb.toggled.connect(self.on_search)
 
     @staticmethod
     def generate_versions() -> list[str]:
@@ -181,35 +220,39 @@ class SearchPanel(QtWidgets.QWidget):
         return versions
 
     def on_search(self):
+        if self.search_running:
+            return
         query = self.search_edit.text().strip()
         self.page = 0
+        versions = [cb.text() for cb in self.version_checks if cb.isChecked()]
+        loaders = [cb.text() for cb in self.loader_checks if cb.isChecked()]
+
         if not query:
             self.mods = []
             self.display_page()
             return
-        versions = [cb.text() for cb in self.version_checks if cb.isChecked()]
-        loaders = [cb.text() for cb in self.loader_checks if cb.isChecked()]
 
-        if self.search_watcher:
-            self.search_watcher.cancel()
-
-        future = QtConcurrent.run(self.api.search_mods, query, 100, versions, loaders)
-        watcher = QtCore.QFutureWatcher()
-        watcher.setFuture(future)
-        watcher.finished.connect(self._on_search_finished)
-        self.search_watcher = watcher
+        self.search_running = True
         self.search_button.setEnabled(False)
+        self.progress.show()
+        worker = Worker(
+            self.api.search_mods,
+            query,
+            100,
+            versions,
+            loaders,
+            callback=self._on_search_finished,
+        )
+        self.thread_pool.start(worker)
 
-    def _on_search_finished(self):
-        if not self.search_watcher:
-            return
-        try:
-            self.mods = self.search_watcher.future().result()
-        except Exception:
-            self.mods = []
-        self.search_watcher.deleteLater()
-        self.search_watcher = None
+    def _on_search_finished(self, result):
+        self.search_running = False
         self.search_button.setEnabled(True)
+        self.progress.hide()
+        if isinstance(result, list):
+            self.mods = result
+        else:
+            self.mods = []
         self.display_page()
 
     def display_page(self):
@@ -217,23 +260,27 @@ class SearchPanel(QtWidgets.QWidget):
         start = self.page * self.page_size
         end = start + self.page_size
         subset = self.mods[start:end]
-        self.translation_watchers.clear()
         for mod in subset:
-            desc = mod.get("description", "")
-            if desc:
-                try:
-                    desc = GoogleTranslator(source="en", target="ru").translate(desc)
-                except Exception:
-                    pass
-            card_mod = mod.copy()
-            card_mod["description"] = desc
             item = QtWidgets.QListWidgetItem()
-            widget = ModCard(card_mod)
+            widget = ModCard(mod)
             item.setSizeHint(widget.sizeHint())
             item.setData(QtCore.Qt.UserRole, mod)
             self.results_list.addItem(item)
             self.results_list.setItemWidget(item, widget)
+            desc = mod.get("description", "")
+            if desc:
+                worker = Worker(
+                    self.translate_description, desc, callback=widget.set_description
+                )
+                self.thread_pool.start(worker)
         self.update_page_label()
+
+    @staticmethod
+    def translate_description(text: str) -> str:
+        try:
+            return GoogleTranslator(source="en", target="ru").translate(text)
+        except Exception:
+            return text
 
     def update_page_label(self):
         total = max(1, math.ceil(len(self.mods) / self.page_size))
