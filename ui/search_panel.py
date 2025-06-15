@@ -1,4 +1,5 @@
-from PySide6 import QtCore, QtGui, QtWidgets, QtConcurrent
+from PySide6 import QtCore, QtGui, QtWidgets
+from concurrent.futures import ThreadPoolExecutor
 from modrinth_api import ModrinthAPI
 import requests
 import math
@@ -71,6 +72,29 @@ class ModCard(QtWidgets.QFrame):
                 pass
 
 
+class FutureWatcher(QtCore.QObject):
+    finished = QtCore.Signal()
+
+    def __init__(self, future):
+        super().__init__()
+        self._future = future
+        future.add_done_callback(
+            lambda f: QtCore.QMetaObject.invokeMethod(
+                self, "_emit_finished", QtCore.Qt.QueuedConnection
+            )
+        )
+
+    @QtCore.Slot()
+    def _emit_finished(self):
+        self.finished.emit()
+
+    def future(self):
+        return self._future
+
+    def cancel(self):
+        self._future.cancel()
+
+
 class SearchPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -83,8 +107,9 @@ class SearchPanel(QtWidgets.QWidget):
         self.page = 0
         self.page_size = 10
         self.mods: list[dict] = []
-        self.search_watcher: QtCore.QFutureWatcher | None = None
-        self.translation_watchers: list[QtCore.QFutureWatcher] = []
+        self.executor = ThreadPoolExecutor()
+        self.search_watcher: FutureWatcher | None = None
+        self.translation_watchers: list[FutureWatcher] = []
 
         self.results_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.results_list.setDragEnabled(True)
@@ -92,8 +117,8 @@ class SearchPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.filter_box = QtWidgets.QGroupBox("Фильтры")
-        filter_inner = QtWidgets.QWidget()
-        filter_layout = QtWidgets.QHBoxLayout(filter_inner)
+        self.filter_inner = QtWidgets.QWidget()
+        filter_layout = QtWidgets.QHBoxLayout(self.filter_inner)
 
         version_group = QtWidgets.QGroupBox("Версии Minecraft")
         vg_layout = QtWidgets.QVBoxLayout(version_group)
@@ -130,9 +155,9 @@ class SearchPanel(QtWidgets.QWidget):
 
         box_layout = QtWidgets.QVBoxLayout(self.filter_box)
         box_layout.addLayout(toggle_row)
-        box_layout.addWidget(filter_inner)
-        filter_inner.setVisible(False)
-        self.filter_toggle.toggled.connect(filter_inner.setVisible)
+        box_layout.addWidget(self.filter_inner)
+        self.filter_inner.setVisible(False)
+        self.filter_toggle.toggled.connect(self.filter_inner.setVisible)
         self.filter_toggle.toggled.connect(
             lambda ch: self.filter_toggle.setArrowType(
                 QtCore.Qt.DownArrow if ch else QtCore.Qt.RightArrow
@@ -193,9 +218,10 @@ class SearchPanel(QtWidgets.QWidget):
         if self.search_watcher:
             self.search_watcher.cancel()
 
-        future = QtConcurrent.run(self.api.search_mods, query, 100, versions, loaders)
-        watcher = QtCore.QFutureWatcher()
-        watcher.setFuture(future)
+        future = self.executor.submit(
+            self.api.search_mods, query, 100, versions, loaders
+        )
+        watcher = FutureWatcher(future)
         watcher.finished.connect(self._on_search_finished)
         self.search_watcher = watcher
         self.search_button.setEnabled(False)
