@@ -1,8 +1,9 @@
 from PySide6 import QtCore, QtGui, QtWidgets
-from modrinth_api import ModrinthAPI
-import requests
+from concurrent.futures import Future, ThreadPoolExecutor
 import math
+import requests
 from deep_translator import GoogleTranslator
+from modrinth_api import ModrinthAPI
 
 
 class ModListWidget(QtWidgets.QListWidget):
@@ -88,21 +89,20 @@ class ModCard(QtWidgets.QFrame):
         self.desc_label.setText(elided)
 
 
-class Worker(QtCore.QRunnable):
-    def __init__(self, fn, *args, callback=None):
-        super().__init__()
-        self.fn = fn
-        self.args = args
-        self.callback = callback
+class FutureWatcher(QtCore.QObject):
+    finished = QtCore.Signal(object)
 
-    @QtCore.Slot()
-    def run(self):
+    def __init__(self, future: Future, parent: QtWidgets.QWidget | None = None):
+        super().__init__(parent)
+        self._future = future
+        future.add_done_callback(self._done)
+
+    def _done(self, fut: Future):
         try:
-            result = self.fn(*self.args)
+            result = fut.result()
         except Exception:
             result = None
-        if self.callback:
-            QtCore.QTimer.singleShot(0, lambda: self.callback(result))
+        QtCore.QTimer.singleShot(0, lambda: self.finished.emit(result))
 
 
 class SearchPanel(QtWidgets.QWidget):
@@ -117,8 +117,10 @@ class SearchPanel(QtWidgets.QWidget):
         self.page = 0
         self.page_size = 10
         self.mods: list[dict] = []
-        self.thread_pool = QtCore.QThreadPool(self)
+        self.executor = ThreadPoolExecutor()
         self.search_running = False
+        self.search_watcher: FutureWatcher | None = None
+        self.translation_watchers: list[FutureWatcher] = []
         self.progress = QtWidgets.QProgressDialog(
             "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...", None, 0, 0, self
         )
@@ -235,20 +237,18 @@ class SearchPanel(QtWidgets.QWidget):
         self.search_running = True
         self.search_button.setEnabled(False)
         self.progress.show()
-        worker = Worker(
-            self.api.search_mods,
-            query,
-            100,
-            versions,
-            loaders,
-            callback=self._on_search_finished,
+        future = self.executor.submit(
+            self.api.search_mods, query, 100, versions, loaders
         )
-        self.thread_pool.start(worker)
+        watcher = FutureWatcher(future)
+        watcher.finished.connect(self._on_search_finished)
+        self.search_watcher = watcher
 
     def _on_search_finished(self, result):
         self.search_running = False
         self.search_button.setEnabled(True)
         self.progress.hide()
+        self.search_watcher = None
         if isinstance(result, list):
             self.mods = result
         else:
@@ -257,6 +257,7 @@ class SearchPanel(QtWidgets.QWidget):
 
     def display_page(self):
         self.results_list.clear()
+        self.translation_watchers.clear()
         start = self.page * self.page_size
         end = start + self.page_size
         subset = self.mods[start:end]
@@ -269,10 +270,10 @@ class SearchPanel(QtWidgets.QWidget):
             self.results_list.setItemWidget(item, widget)
             desc = mod.get("description", "")
             if desc:
-                worker = Worker(
-                    self.translate_description, desc, callback=widget.set_description
-                )
-                self.thread_pool.start(worker)
+                future = self.executor.submit(self.translate_description, desc)
+                tw = FutureWatcher(future)
+                tw.finished.connect(widget.set_description)
+                self.translation_watchers.append(tw)
         self.update_page_label()
 
     @staticmethod
