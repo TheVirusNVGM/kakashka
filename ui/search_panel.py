@@ -1,7 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 from modrinth_api import ModrinthAPI
-import requests
 import math
+import requests
 from deep_translator import GoogleTranslator
 
 
@@ -23,7 +23,6 @@ class ModCard(QtWidgets.QFrame):
         super().__init__(parent)
         self.mod = mod
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
-        self.setFixedHeight(80)
         self.setStyleSheet(
             "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; margin-bottom: 6px; }"
             "QFrame:hover { background-color: #333; }"
@@ -32,13 +31,17 @@ class ModCard(QtWidgets.QFrame):
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
-        layout.setAlignment(QtCore.Qt.AlignVCenter)
+        layout.setAlignment(QtCore.Qt.AlignTop)
 
         self.icon_label = QtWidgets.QLabel()
-        self.icon_label.setFixedSize(64, 64)
+        self.icon_label.setFixedSize(32, 32)
         self.icon_label.setStyleSheet("border-radius:4px;")
-        self.icon_label.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(self.icon_label)
+        icon_box = QtWidgets.QVBoxLayout()
+        icon_box.setContentsMargins(0, 0, 8, 4)
+        icon_box.addWidget(
+            self.icon_label, alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop
+        )
+        layout.addLayout(icon_box)
 
         text_layout = QtWidgets.QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
@@ -46,16 +49,26 @@ class ModCard(QtWidgets.QFrame):
         self.title_label = QtWidgets.QLabel(mod.get("title", ""))
         title_font = self.title_label.font()
         title_font.setBold(True)
-        title_font.setPointSize(15)
         self.title_label.setFont(title_font)
-        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
         self.title_label.setStyleSheet("color: #f0f0f0; margin-bottom: 2px;")
+        self.title_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
+        fm_title = self.title_label.fontMetrics()
+        elided_title = fm_title.elidedText(
+            self.title_label.text(), QtCore.Qt.ElideRight, 300
+        )
+        self.title_label.setText(elided_title)
 
         desc = mod.get("description", "")
+        self.full_description = desc
         self.desc_label = QtWidgets.QLabel()
         self.desc_label.setWordWrap(True)
         self.desc_label.setStyleSheet("color: #cccccc;")
         self.desc_label.setMaximumWidth(400)
+        self.desc_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
         fm = self.desc_label.fontMetrics()
         self.desc_label.setFixedHeight(fm.lineSpacing() * 2)
         elided = fm.elidedText(
@@ -70,17 +83,44 @@ class ModCard(QtWidgets.QFrame):
 
         icon_url = mod.get("icon_url")
         if icon_url:
-            try:
-                r = requests.get(icon_url)
-                r.raise_for_status()
-                pix = QtGui.QPixmap()
-                pix.loadFromData(r.content)
-                pix = pix.scaled(
-                    64, 64, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
-                )
-                self.icon_label.setPixmap(pix)
-            except Exception:
-                pass
+            worker = Worker(self._download_icon, icon_url, callback=self._set_icon)
+            QtCore.QThreadPool.globalInstance().start(worker)
+
+        self.adjustSize()
+        self._size_hint = super().sizeHint()
+
+    def _download_icon(self, url: str):
+        try:
+            r = requests.get(url)
+            r.raise_for_status()
+            return r.content
+        except Exception:
+            return None
+
+    def _set_icon(self, data: bytes | None):
+        if not data:
+            return
+        pix = QtGui.QPixmap()
+        pix.loadFromData(data)
+        pix = pix.scaled(
+            32, 32, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+        )
+        self.icon_label.setPixmap(pix)
+
+    def enterEvent(self, event: QtCore.QEvent):
+        QtWidgets.QToolTip.showText(
+            QtGui.QCursor.pos(),
+            f"<h3>{self.mod.get('title', '')}</h3><p style=\"white-space:pre-wrap\">{self.full_description}</p>",
+            self,
+        )
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QtCore.QEvent):
+        QtWidgets.QToolTip.hideText()
+        super().leaveEvent(event)
+
+    def sizeHint(self) -> QtCore.QSize:
+        return self._size_hint
 
 
 class Worker(QtCore.QObject, QtCore.QRunnable):
