@@ -2,6 +2,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from modrinth_api import ModrinthAPI
 import requests
 import math
+from googletrans import Translator
 
 
 class ModListWidget(QtWidgets.QListWidget):
