@@ -40,13 +40,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.board.create_category_dialog()
 
     def save(self):
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save", filter="JSON Files (*.json)")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save", filter="JSON Files (*.json)"
+        )
         if path:
             save_schema(self.board.to_models(), path)
 
     def load(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load", filter="JSON Files (*.json)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load", filter="JSON Files (*.json)"
+        )
         if path:
             cats = load_schema(path)
             self.board.load_from_models(cats)
-
