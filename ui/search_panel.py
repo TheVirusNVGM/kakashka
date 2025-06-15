@@ -2,7 +2,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from modrinth_api import ModrinthAPI
 import requests
 import math
-from googletrans import Translator
+from deep_translator import GoogleTranslator
+
 
 
 
@@ -181,6 +182,8 @@ class SearchPanel(QtWidgets.QWidget):
             desc = mod.get("description", "")
             if desc:
                 try:
+                    desc = GoogleTranslator(source="en", target="ru").translate(desc)
+
                     r = requests.post(
                         "http://localhost:5000/translate",
                         json={
@@ -194,6 +197,7 @@ class SearchPanel(QtWidgets.QWidget):
                     r.raise_for_status()
                     resp_json = r.json()
                     desc = resp_json.get("translatedText", desc)
+
                 except Exception:
                     pass
             card_mod = mod.copy()
