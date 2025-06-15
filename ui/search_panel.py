@@ -2,8 +2,7 @@ from PySide6 import QtCore, QtGui, QtWidgets, QtConcurrent
 from modrinth_api import ModrinthAPI
 import requests
 import math
-
-TRANSLATE_URL = "http://localhost:5000/translate"
+from deep_translator import GoogleTranslator
 
 
 class ModListWidget(QtWidgets.QListWidget):
@@ -92,7 +91,7 @@ class SearchPanel(QtWidgets.QWidget):
 
         layout = QtWidgets.QVBoxLayout(self)
 
-        self.filter_box = QtWidgets.QGroupBox()
+        self.filter_box = QtWidgets.QGroupBox("Фильтры")
         filter_inner = QtWidgets.QWidget()
         filter_layout = QtWidgets.QHBoxLayout(filter_inner)
 
@@ -221,6 +220,11 @@ class SearchPanel(QtWidgets.QWidget):
         self.translation_watchers.clear()
         for mod in subset:
             desc = mod.get("description", "")
+            if desc:
+                try:
+                    desc = GoogleTranslator(source="en", target="ru").translate(desc)
+                except Exception:
+                    pass
             card_mod = mod.copy()
             card_mod["description"] = desc
             item = QtWidgets.QListWidgetItem()
@@ -229,42 +233,7 @@ class SearchPanel(QtWidgets.QWidget):
             item.setData(QtCore.Qt.UserRole, mod)
             self.results_list.addItem(item)
             self.results_list.setItemWidget(item, widget)
-            if desc:
-                future = QtConcurrent.run(self._translate_desc, desc)
-                watcher = QtCore.QFutureWatcher()
-                watcher.setFuture(future)
-                watcher.finished.connect(
-                    lambda w=watcher, lbl=widget.desc_label, d=desc: self._apply_translation(
-                        w, lbl, d
-                    )
-                )
-                self.translation_watchers.append(watcher)
         self.update_page_label()
-
-    def _translate_desc(self, text: str) -> str:
-        try:
-            r = requests.post(
-                TRANSLATE_URL,
-                json={"q": text, "source": "en", "target": "ru", "format": "text"},
-                timeout=5,
-            )
-            if r.ok:
-                return r.json().get("translatedText", text)
-        except Exception:
-            pass
-        return text
-
-    def _apply_translation(
-        self, watcher: QtCore.QFutureWatcher, label: QtWidgets.QLabel, default: str
-    ):
-        try:
-            text = watcher.future().result()
-        except Exception:
-            text = default
-        label.setText(text)
-        watcher.deleteLater()
-        if watcher in self.translation_watchers:
-            self.translation_watchers.remove(watcher)
 
     def update_page_label(self):
         total = max(1, math.ceil(len(self.mods) / self.page_size))
