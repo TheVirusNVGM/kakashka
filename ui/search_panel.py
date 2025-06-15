@@ -1,8 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 from modrinth_api import ModrinthAPI
 import requests
-from io import BytesIO
-from googletrans import Translator
+import math
 
 
 class ModListWidget(QtWidgets.QListWidget):
@@ -71,7 +70,6 @@ class SearchPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.api = ModrinthAPI()
-        self.translator = Translator()
         self.search_edit = QtWidgets.QLineEdit()
         self.search_button = QtWidgets.QPushButton("Поиск")
         self.results_list = ModListWidget()
@@ -183,7 +181,19 @@ class SearchPanel(QtWidgets.QWidget):
             desc = mod.get("description", "")
             if desc:
                 try:
-                    desc = self.translator.translate(desc, dest="ru").text
+                    r = requests.post(
+                        "http://localhost:5000/translate",
+                        json={
+                            "q": desc,
+                            "source": "en",
+                            "target": "ru",
+                            "format": "text",
+                        },
+                        timeout=5,
+                    )
+                    r.raise_for_status()
+                    resp_json = r.json()
+                    desc = resp_json.get("translatedText", desc)
                 except Exception:
                     pass
             card_mod = mod.copy()
@@ -197,14 +207,12 @@ class SearchPanel(QtWidgets.QWidget):
         self.update_page_label()
 
     def update_page_label(self):
-        import math
         total = max(1, math.ceil(len(self.mods) / self.page_size))
         self.page_label.setText(f"{self.page + 1}/{total}")
         self.prev_btn.setEnabled(self.page > 0)
         self.next_btn.setEnabled(self.page < total - 1)
 
     def next_page(self):
-        import math
         total = math.ceil(len(self.mods) / self.page_size)
         if self.page < total - 1:
             self.page += 1
