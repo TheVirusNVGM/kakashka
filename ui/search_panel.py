@@ -1,8 +1,10 @@
-from PySide6 import QtCore, QtGui, QtWidgets
-from modrinth_api import ModrinthAPI
 import math
+
 import requests
 from deep_translator import GoogleTranslator
+from PySide6 import QtCore, QtGui, QtWidgets
+
+from modrinth_api import ModrinthAPI
 
 
 class ModListWidget(QtWidgets.QListWidget):
@@ -20,28 +22,29 @@ class ModListWidget(QtWidgets.QListWidget):
 
 class ModCard(QtWidgets.QFrame):
     def __init__(self, mod: dict, parent: QtWidgets.QWidget | None = None):
+        self._size_hint = None
         super().__init__(parent)
         self.mod = mod
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.setFixedHeight(80)
         self.setStyleSheet(
-            "QFrame { background-color: #2a2a2a; border-radius: 8px; padding: 6px; margin-bottom: 6px; }"
+            "QFrame { background-color: #2a2a2a; border-radius: 4px; padding: 6px; margin-bottom: 6px; }"
             "QFrame:hover { background-color: #333; }"
         )
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
-        layout.setAlignment(QtCore.Qt.AlignTop)
+        layout.setAlignment(QtCore.Qt.AlignVCenter)
 
         self.icon_label = QtWidgets.QLabel()
-        self.icon_label.setFixedSize(32, 32)
+        self.icon_label.setFixedSize(64, 64)
+        self.icon_label.setAlignment(QtCore.Qt.AlignCenter)
         self.icon_label.setStyleSheet("border-radius:4px;")
-        icon_box = QtWidgets.QVBoxLayout()
-        icon_box.setContentsMargins(0, 0, 8, 4)
-        icon_box.addWidget(
-            self.icon_label, alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop
-        )
-        layout.addLayout(icon_box)
+        layout.addWidget(self.icon_label)
+
+        text_layout = QtWidgets.QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
 
         text_layout = QtWidgets.QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
@@ -49,7 +52,9 @@ class ModCard(QtWidgets.QFrame):
         self.title_label = QtWidgets.QLabel(mod.get("title", ""))
         title_font = self.title_label.font()
         title_font.setBold(True)
+        title_font.setPointSize(15)
         self.title_label.setFont(title_font)
+        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
         self.title_label.setStyleSheet("color: #f0f0f0; margin-bottom: 2px;")
         self.title_label.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
@@ -103,7 +108,7 @@ class ModCard(QtWidgets.QFrame):
         pix = QtGui.QPixmap()
         pix.loadFromData(data)
         pix = pix.scaled(
-            32, 32, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+            64, 64, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
         )
         self.icon_label.setPixmap(pix)
 
@@ -120,7 +125,7 @@ class ModCard(QtWidgets.QFrame):
         super().leaveEvent(event)
 
     def sizeHint(self) -> QtCore.QSize:
-        return self._size_hint
+        return self._size_hint or super().sizeHint()
 
 
 class Worker(QtCore.QObject, QtCore.QRunnable):
